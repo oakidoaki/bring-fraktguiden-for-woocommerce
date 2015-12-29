@@ -44,6 +44,10 @@ A: Rates are only shown when the customer has a valid zip code.
 
 == Changelog ==
 
+= 1.2.0 =
+
+* Introduced pickup point on the checkout page
+
 = 1.1.0 =
 
 * Improved support for multi packaging.

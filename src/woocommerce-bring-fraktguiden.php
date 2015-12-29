@@ -20,25 +20,35 @@
  * @author              Driv Digital
  */
 class Bring_Fraktguiden {
+
+  /**
+   * Entry point
+   */
   static function init() {
     if ( class_exists( 'WooCommerce' ) ) {
       load_plugin_textdomain( 'bring-fraktguiden', false, dirname( plugin_basename( __FILE__ ) ) . '/languages/' );
+      wp_register_script( 'bring-fraktguiden-checkout', plugins_url( 'js/bring-fraktguiden-pickuppoint.js', __FILE__ ), array( 'jquery' ), '##VERSION##', true );
+
       add_action( 'woocommerce_shipping_init', 'Bring_Fraktguiden::shipping_init' );
+
+      // todo: only if Bring is enabled.
+      add_action( 'wp_enqueue_scripts', 'Bring_Fraktguiden::add_pickup_point_script' );
+
     }
   }
 
-  // Include the shipping method
+  /**
+   * Include the shipping method
+   */
   static function shipping_init() {
     include_once 'classes/class-wc-shipping-method-bring.php';
-    // Add the method to WooCommerce.
     add_filter( 'woocommerce_shipping_methods', 'Bring_Fraktguiden::add_bring_method' );
   }
 
   /**
-   * add_bring_method function.
+   * Adds Bring shipping method to WooCommerce.
    *
    * @package  WooCommerce/Classes/Shipping
-   * @access public
    * @param array $methods
    * @return array
    */
@@ -46,6 +56,18 @@ class Bring_Fraktguiden {
     $methods[] = 'WC_Shipping_Method_Bring';
     return $methods;
   }
+
+  /**
+   * Adds pick up point js to the checkout page.
+   *
+   * @access public
+   */
+  static function add_pickup_point_script() {
+    if ( is_checkout() ) {
+      wp_enqueue_script( 'bring-fraktguiden-checkout' );
+    }
+  }
+
 }
 
 add_action( 'plugins_loaded', 'Bring_Fraktguiden::init' );

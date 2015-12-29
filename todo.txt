@@ -1,0 +1,6 @@
+Pickup point
+* Show only for Bring/'servicepakke'?
+* Translation
+* Do not load if Bring is disabled
+* Does WP have proxy
+* Cache pickup point result if postcode is not changed

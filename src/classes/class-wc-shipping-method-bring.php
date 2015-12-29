@@ -304,6 +304,8 @@ class WC_Shipping_Method_Bring extends WC_Shipping_Method {
       $params = array_merge( $this->create_standard_url_params(), $packer->create_coli_params() );
       // Remove any empty elements.
       $params = array_filter( $params );
+
+      $params['_ran'] = time();
       // Create url.
       $query = add_query_arg( $params, self::SERVICE_URL );
       // Make the request.
@@ -312,6 +314,11 @@ class WC_Shipping_Method_Bring extends WC_Shipping_Method {
       if ( is_wp_error( $response ) ) {
         return;
       }
+
+      file_put_contents('/Users/thomasandersen/.wp.log', print_r($query,1), FILE_APPEND);
+      file_put_contents('/Users/thomasandersen/.wp.log', '----------', FILE_APPEND);
+      file_put_contents('/Users/thomasandersen/.wp.log', print_r($params,1), FILE_APPEND);
+      file_put_contents('/Users/thomasandersen/.wp.log', '----------', FILE_APPEND);
 
       // Decode the JSON data from bring.
       $json = json_decode( $response['body'], true );
