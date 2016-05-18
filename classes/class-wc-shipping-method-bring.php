@@ -22,6 +22,8 @@ class WC_Shipping_Method_Bring extends WC_Shipping_Method {
 
   const DEFAULT_ALT_FLAT_RATE = 200;
 
+  private static $with_fuel_surcharge = [ 'CarryOn Business', 'CarryOn HomeShopping' ];
+
   private $from_country = '';
   private $from_zip = '';
   private $post_office = '';
@@ -30,6 +32,7 @@ class WC_Shipping_Method_Bring extends WC_Shipping_Method {
   private $services = array();
   private $service_name = '';
   private $display_desc = '';
+  private $fuel_surcharge = '';
   private $max_products = '';
   private $alt_flat_rate = '';
 
@@ -60,15 +63,16 @@ class WC_Shipping_Method_Bring extends WC_Shipping_Method {
     $this->fee          = $this->settings['handling_fee'];
 
     // WC_Shipping_Method_Bring
-    $this->from_country = array_key_exists( 'from_country', $this->settings ) ? $this->settings['from_country'] : '';
-    $this->from_zip     = array_key_exists( 'from_zip', $this->settings ) ? $this->settings['from_zip'] : '';
-    $this->post_office  = array_key_exists( 'post_office', $this->settings ) ? $this->settings['post_office'] : '';
-    $this->vat          = array_key_exists( 'vat', $this->settings ) ? $this->settings['vat'] : '';
-    $this->evarsling    = array_key_exists( 'evarsling', $this->settings ) ? $this->settings['evarsling'] : '';
-    $this->services     = array_key_exists( 'services', $this->settings ) ? $this->settings['services'] : '';
-    $this->service_name = array_key_exists( 'service_name', $this->settings ) ? $this->settings['service_name'] : '';
-    $this->display_desc = array_key_exists( 'display_desc', $this->settings ) ? $this->settings['display_desc'] : '';
-    $this->max_products = ! empty( $this->settings['max_products'] ) ? (int)$this->settings['max_products'] : self::DEFAULT_MAX_PRODUCTS;
+    $this->from_country   = array_key_exists( 'from_country', $this->settings ) ? $this->settings['from_country'] : '';
+    $this->from_zip       = array_key_exists( 'from_zip', $this->settings ) ? $this->settings['from_zip'] : '';
+    $this->post_office    = array_key_exists( 'post_office', $this->settings ) ? $this->settings['post_office'] : '';
+    $this->vat            = array_key_exists( 'vat', $this->settings ) ? $this->settings['vat'] : '';
+    $this->evarsling      = array_key_exists( 'evarsling', $this->settings ) ? $this->settings['evarsling'] : '';
+    $this->services       = array_key_exists( 'services', $this->settings ) ? $this->settings['services'] : '';
+    $this->service_name   = array_key_exists( 'service_name', $this->settings ) ? $this->settings['service_name'] : '';
+    $this->display_desc   = array_key_exists( 'display_desc', $this->settings ) ? $this->settings['display_desc'] : '';
+    $this->fuel_surcharge = array_key_exists( 'fuel_surcharge', $this->settings ) ? $this->settings['fuel_surcharge'] : '';
+    $this->max_products   = ! empty( $this->settings['max_products'] ) ? (int)$this->settings['max_products'] : self::DEFAULT_MAX_PRODUCTS;
     // Extra safety, in case shop owner blanks ('') the value.
     if ( ! empty( $this->settings['alt_flat_rate'] ) ) {
       $this->alt_flat_rate = (int)$this->settings['alt_flat_rate'];
@@ -242,6 +246,12 @@ class WC_Shipping_Method_Bring extends WC_Shipping_Method {
             'label'       => __( 'Add description after the service', self::TEXT_DOMAIN ),
             'description' => __( 'Show service description after the name of the service', self::TEXT_DOMAIN ),
             'default'     => 'no'
+        ),
+        'fuel_surcharge' => array(
+            'title'       => __( 'Fuel surcharge for parcels', self::TEXT_DOMAIN ),
+            'type'        => 'text',
+            'description' => __( 'Add a fuel surcharge (in percent) to services where this applies. New rate the 1st every month, announced 14 days before <a href="http://www.bring.no/sende/pakker/private-i-utlandet/pakke-til-en-mottaker">here</a>', self::TEXT_DOMAIN ),
+            'default'     => '7.0'
         ),
         'max_products'  => array(
             'title'       => __( 'Max products', self::TEXT_DOMAIN ),
@@ -420,6 +430,8 @@ class WC_Shipping_Method_Bring extends WC_Shipping_Method {
 
     $rates = array();
 
+    $fuel_surcharge = 1.0 + floatval( $this->fuel_surcharge ) / 100.0;
+
     // Fix for when only one service is found. It's not returned in an array :/
     if ( empty( $response['Product'][0] ) ) {
       $cache = $response['Product'];
@@ -434,6 +446,10 @@ class WC_Shipping_Method_Bring extends WC_Shipping_Method {
 
       $service = $serviceDetails['Price']['PackagePriceWithoutAdditionalServices'];
       $rate    = $this->vat == 'exclude' ? $service['AmountWithoutVAT'] : $service['AmountWithVAT'];
+
+      if ( in_array( $serviceDetails['GuiInformation']['ProductName'], self::$with_fuel_surcharge ) ) {
+          $rate *= $fuel_surcharge;
+      }
 
       $rate = array(
           'id'    => $this->id . ':' . sanitize_title( $serviceDetails['ProductId'] ),
