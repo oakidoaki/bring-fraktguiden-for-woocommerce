@@ -469,11 +469,14 @@ class WC_Shipping_Method_Bring extends WC_Shipping_Method {
     $language = substr(get_bloginfo ( 'language' ), 0, 2);
 
     $languages = [
-        'sv' => 'se',
-        'dk' => 'da'
+        'dk' => 'da',
+        'fi' => 'fi',
+        'nb' => 'no',
+        'nn' => 'no',
+        'sv' => 'se'
     ];
 
-    return array_key_exists($language, $languages) ? $languages[$language] : 'no';
+    return array_key_exists($language, $languages) ? $languages[$language] : 'en';
   }
 
   public function get_selected_from_country() {
