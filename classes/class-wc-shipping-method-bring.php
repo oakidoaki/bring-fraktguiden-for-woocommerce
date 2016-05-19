@@ -412,9 +412,11 @@ class WC_Shipping_Method_Bring extends WC_Shipping_Method {
 
       // Calculate rate.
       if ( $rates ) {
-        foreach ( $rates as $rate ) {
-          $this->add_rate( $rate );
-        }
+        usort( $rates, function ( $a, $b ) {
+          return ($a['cost'] < $b['cost']) ? -1 : (($a['cost'] > $b['cost']) ? 1 : 0);
+        });
+
+        $this->add_rate( $rates[0] );
       }
     }
   }
