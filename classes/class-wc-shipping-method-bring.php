@@ -18,11 +18,15 @@ class WC_Shipping_Method_Bring extends WC_Shipping_Method {
 
   const TEXT_DOMAIN = 'bring-fraktguiden';
 
+  const DEFAULT_MAX_SERVICES = 1;
+
   const DEFAULT_MAX_PRODUCTS = 100;
 
   const DEFAULT_ALT_FLAT_RATE = 200;
 
   private static $with_fuel_surcharge = [ 'CarryOn Business', 'CarryOn HomeShopping' ];
+
+  private static $european_countries = ['AD', 'AL', 'AT', 'AX', 'BA', 'BE', 'BG', 'BY', 'CH', 'CZ', 'DE', 'DK', 'EE', 'ES', 'FI', 'FO', 'FR', 'GB', 'GG', 'GI', 'GR', 'HR', 'HU', 'IE', 'IM', 'IS', 'IT', 'JE', 'LI', 'LT', 'LU', 'LV', 'MC', 'MD', 'ME', 'MK', 'MT', 'NL', 'NO', 'PL', 'PT', 'RO', 'RS', 'RU', 'SE', 'SI', 'SJ', 'SK', 'SM', 'UA', 'VA'];
 
   private $from_country = '';
   private $from_zip = '';
@@ -33,6 +37,7 @@ class WC_Shipping_Method_Bring extends WC_Shipping_Method {
   private $service_name = '';
   private $display_desc = '';
   private $fuel_surcharge = '';
+  private $max_services = '';
   private $max_products = '';
   private $alt_flat_rate = '';
 
@@ -69,9 +74,10 @@ class WC_Shipping_Method_Bring extends WC_Shipping_Method {
     $this->vat            = array_key_exists( 'vat', $this->settings ) ? $this->settings['vat'] : '';
     $this->evarsling      = array_key_exists( 'evarsling', $this->settings ) ? $this->settings['evarsling'] : '';
     $this->services       = array_key_exists( 'services', $this->settings ) ? $this->settings['services'] : '';
-    $this->service_name   = array_key_exists( 'service_name', $this->settings ) ? $this->settings['service_name'] : '';
-    $this->display_desc   = array_key_exists( 'display_desc', $this->settings ) ? $this->settings['display_desc'] : '';
-    $this->fuel_surcharge = array_key_exists( 'fuel_surcharge', $this->settings ) ? $this->settings['fuel_surcharge'] : '';
+    $this->service_name   = array_key_exists( 'service_name', $this->settings ) ? $this->settings['service_name'] : 'DisplayName';
+    $this->display_desc   = array_key_exists( 'display_desc', $this->settings ) ? $this->settings['display_desc'] : 'no';
+    $this->fuel_surcharge = array_key_exists( 'fuel_surcharge', $this->settings ) ? $this->settings['fuel_surcharge'] : 7.0;
+    $this->max_services   = ! empty( $this->settings['max_services'] ) ? (int)$this->settings['max_services'] : self::DEFAULT_MAX_SERVICES;
     $this->max_products   = ! empty( $this->settings['max_products'] ) ? (int)$this->settings['max_products'] : self::DEFAULT_MAX_PRODUCTS;
     // Extra safety, in case shop owner blanks ('') the value.
     if ( ! empty( $this->settings['alt_flat_rate'] ) ) {
@@ -139,6 +145,7 @@ class WC_Shipping_Method_Bring extends WC_Shipping_Method {
         'COURIER_4H'                 => 'Bud 4 timer',
         'COURIER_6H'                 => 'Bud 6 timer',
         'OIL_EXPRESS'                => 'Oil Express',
+        'CUSTOM_SMAAPAKKER_A-POST'   => 'Egenkalkulert Småpakke A-Post'
     );
 
     $wc_log_dir = '';
@@ -252,6 +259,12 @@ class WC_Shipping_Method_Bring extends WC_Shipping_Method {
             'type'        => 'text',
             'description' => __( 'Add a fuel surcharge (in percent) to services where this applies. New rate the 1st every month, announced 14 days before <a href="http://www.bring.no/sende/pakker/private-i-utlandet/pakke-til-en-mottaker">here</a>', self::TEXT_DOMAIN ),
             'default'     => '7.0'
+        ),
+        'max_services'  => array(
+            'title'       => __( 'Max services', self::TEXT_DOMAIN ),
+            'type'        => 'text',
+            'description' => __( 'Maximum of services to display, least expensive displayed first', self::TEXT_DOMAIN ),
+            'default'     => self::DEFAULT_MAX_SERVICES
         ),
         'max_products'  => array(
             'title'       => __( 'Max products', self::TEXT_DOMAIN ),
@@ -371,31 +384,49 @@ class WC_Shipping_Method_Bring extends WC_Shipping_Method {
       // Create the url.
 
       // Request parameters.
-      $params = array_merge( $this->create_standard_url_params(), $packer->create_coli_params() );
+      $coli_params = $packer->create_coli_params();
+      $params = array_merge( $this->create_standard_url_params(), $coli_params );
       // Remove any empty elements.
       $params = array_filter( $params );
       // Create url.
 
       $url = add_query_arg( $params, self::SERVICE_URL );
 
+      $custom_services = array();
+
       // Add all the selected products to the URL
       if ( $this->services && count( $this->services ) > 0 ) {
         foreach ( $this->services as $product ) {
-          $url .= '&product=' . $product;
+            if ( substr( $product, 0, 7 ) == "CUSTOM_" ) {
+                $custom_services[] = $product;
+            }
+            else {
+                $url .= '&product=' . $product;
+            }
         }
       }
 
-      // Make the request.
-      $response = wp_remote_get( $url );
-      // If the request fails, just return.
-      if ( is_wp_error( $response ) ) {
-        return;
+      if ( count( $custom_services ) == 0 || count( $custom_services ) < count ( $this->services ) ) {
+
+        // Make the request.
+        $response = wp_remote_get( $url );
+        // If the request fails, just return.
+        if ( is_wp_error( $response ) ) {
+          return;
+        }
+
+        // Decode the JSON data from bring.
+        $json = json_decode( $response['body'], true );
+        // Filter the response json to get only the selected services from the settings.
+        $rates = $this->get_services_from_response( $json );
+      }
+      else {
+          $rates = array();
       }
 
-      // Decode the JSON data from bring.
-      $json = json_decode( $response['body'], true );
-      // Filter the response json to get only the selected services from the settings.
-      $rates = $this->get_services_from_response( $json );
+      if ( count( $custom_services ) > 0 ) {
+        $rates = array_merge( $rates, $this->get_custom_service_rates($custom_services, $coli_params) );
+      }
 
       if ( $this->debug != 'no' ) {
         $this->log->add( $this->id, 'params: ' . print_r( $params, true ) );
@@ -416,9 +447,313 @@ class WC_Shipping_Method_Bring extends WC_Shipping_Method {
           return ($a['cost'] < $b['cost']) ? -1 : (($a['cost'] > $b['cost']) ? 1 : 0);
         });
 
-        $this->add_rate( $rates[0] );
+        $rates = array_slice( $rates, 0, intval( $this->max_services ) );
+
+        foreach ( $rates as $rate ) {
+            $this->add_rate( $rate );
+        }
       }
     }
+  }
+
+    private function get_custom_service_rates($custom_services, $coli_params) {
+
+      global $woocommerce;
+
+      $NORWAY = 0;
+      $EUROPE = 1;
+      $WORLD = 2;
+
+      $result = array();
+
+      $shipping_country = $woocommerce->customer->get_shipping_country();
+      $shipping_post_code = $woocommerce->customer->get_shipping_postcode();
+
+      $weight = $coli_params['weightInGrams0'] / 1000.0;
+      $height = $coli_params['height0'];
+      $length = $coli_params['length0'];
+      $width = $coli_params['width0'];
+
+      if ( ( $height > $length ) || ( $height > $width ) ) {
+          $old_height = $height;
+          if ( $length < $width ) {
+              $height = $length;
+              $length = $old_height;
+          }
+          else {
+              $height = $width;
+              $width = $old_height;
+          }
+      }
+
+      if ( $width < $length ) {
+          $old_width = $width;
+          $width = $length;
+          $length = $old_width;
+      }
+
+      if ( $shipping_country == 'NO' ) {
+          $region = $NORWAY;
+      }
+      elseif ( in_array( $shipping_country, self::$european_countries ) ) {
+          $region = $EUROPE;
+      }
+      else {
+          $region = $WORLD;
+      }
+
+      foreach ($custom_services as $custom_service) {
+
+        if ( ( $this->get_selected_from_country() == 'NO' ) && ( $width < 60.0 ) && ( $length + $height + $width <= 90.0 ) && ( $weight < 2.0 ) ) {
+
+            if ( ( $height > 7.0 ) || ( $width > 35.3 ) || ( $length > 25.0 ) ) {
+                if ( $weight > 1.0) {
+                    switch ($region) {
+                        case $NORWAY:
+                            $rate = 145.0 / 1.25;
+                            break;
+                        case $EUROPE:
+                            $rate = 190.0 / 1.25;
+                            break;
+                        default:
+                            $rate = 230.0 / 1.25;
+                            break;
+                    }
+                }
+                elseif ( $weight > 0.35 ) {
+                    switch ($region) {
+                        case $NORWAY:
+                            $rate = 105.0 / 1.25;
+                            break;
+                        case $EUROPE:
+                            $rate = 135.0 / 1.25;
+                            break;
+                        default:
+                            $rate = 170.0 / 1.25;
+                            break;
+                    }
+                }
+                else {
+                    switch ($region) {
+                        case $NORWAY:
+                            $rate = 70.0 / 1.25;
+                            break;
+                        case $EUROPE:
+                            $rate = 90.0 / 1.25;
+                            break;
+                        default:
+                            $rate = 110.0 / 1.25;
+                            break;
+                    }
+                }
+            }
+            elseif ( $height >= 2.0 ) {
+                if ( $weight > 1.0) {
+                    switch ($region) {
+                        case $NORWAY:
+                            $rate = 110.0 / 1.25;
+                            break;
+                        case $EUROPE:
+                            $rate = 145.0 / 1.25;
+                            break;
+                        default:
+                            $rate = 175.0 / 1.25;
+                            break;
+                    }
+                }
+                elseif ( $weight > 0.35 ) {
+                    switch ($region) {
+                        case $NORWAY:
+                            $rate = 75.0 / 1.25;
+                            break;
+                        case $EUROPE:
+                            $rate = 100.0 / 1.25;
+                            break;
+                        default:
+                            $rate = 120.0 / 1.25;
+                            break;
+                    }
+                }
+                else {
+                    switch ($region) {
+                        case $NORWAY:
+                            $rate = 40.0 / 1.25;
+                            break;
+                        case $EUROPE:
+                            $rate = 50.0 / 1.25;
+                            break;
+                        default:
+                            $rate = 65.0 / 1.25;
+                            break;
+                    }
+                }
+            }
+            else {
+                if ( $weight > 1.0) {
+                    switch ($region) {
+                        case $NORWAY:
+                            $rate = 100.0 / 1.25;
+                            break;
+                        case $EUROPE:
+                            $rate = 130.0 / 1.25;
+                            break;
+                        default:
+                            $rate = 160.0 / 1.25;
+                            break;
+                    }
+                }
+                elseif ( $weight > 0.35 ) {
+                    switch ($region) {
+                        case $NORWAY:
+                            $rate = 65.0 / 1.25;
+                            break;
+                        case $EUROPE:
+                            $rate = 85.0 / 1.25;
+                            break;
+                        default:
+                            $rate = 104.0 / 1.25;
+                            break;
+                    }
+                }
+                elseif ( $weight > 0.1 ) {
+                    switch ($region) {
+                        case $NORWAY:
+                            $rate = 33.0 / 1.25;
+                            break;
+                        case $EUROPE:
+                            $rate = 43.0 / 1.25;
+                            break;
+                        default:
+                            $rate = 53.0 / 1.25;
+                            break;
+                    }
+                }
+                elseif ( $weight > 0.05 ) {
+                    switch ($region) {
+                        case $NORWAY:
+                            $rate = 21.0 / 1.25;
+                            break;
+                        case $EUROPE:
+                            $rate = 27.0 / 1.25;
+                            break;
+                        default:
+                            $rate = 34.0 / 1.25;
+                            break;
+                    }
+                }
+                elseif ( $weight > 0.02 ) {
+                    switch ($region) {
+                        case $NORWAY:
+                            $rate = 17.0 / 1.25;
+                            break;
+                        case $EUROPE:
+                            $rate = 22.0 / 1.25;
+                            break;
+                        default:
+                            $rate = 27.0 / 1.25;
+                            break;
+                    }
+                }
+                else {
+                    switch ($region) {
+                        case $NORWAY:
+                            $rate = 11.0 / 1.25;
+                            break;
+                        case $EUROPE:
+                            $rate = 14.0 / 1.25;
+                            break;
+                        default:
+                            $rate = 18.0 / 1.25;
+                            break;
+                    }
+                }
+            }
+
+        }
+
+        if ( $shipping_country != 'NO' ) {
+            $rate *= 1.25;
+        }
+
+        if ( $rate ) {
+            $result[] = array(
+                'id'    => $this->id . ':' . sanitize_title( $custom_service ) . ':' . sanitize_title( $shipping_country ) . ':' . sanitize_title( $shipping_post_code ),
+                'cost'  => (float)$rate + (float)$this->fee,
+                'label' => __( 'Norway Post, not traceable', self::TEXT_DOMAIN )
+            );
+        }
+      }
+
+      return $result;
+  }
+
+  private function get_custom_service_rates_smaapakker($custom_services, $coli_params) {
+
+      global $woocommerce;
+
+      $result = array();
+
+      $shipping_country = $woocommerce->customer->get_shipping_country();
+      $shipping_post_code = $woocommerce->customer->get_shipping_postcode();
+
+      $weight = max( [$coli_params['weightInGrams0'] / 1000.0, 0.2] );
+      $height = $coli_params['height0'];
+      $length = $coli_params['length0'];
+      $width = $coli_params['width0'];
+
+      if ( ( $height > $length ) || ( $height > $width ) ) {
+          $old_height = $height;
+          if ( $length < $width ) {
+              $height = $length;
+              $length = $old_height;
+          }
+          else {
+              $height = $width;
+              $width = $old_height;
+          }
+      }
+
+      if ( $width < $length ) {
+          $old_width = $width;
+          $width = $length;
+          $length = $old_width;
+      }
+
+      foreach ($custom_services as $custom_service) {
+
+        if ( ( $this->get_selected_from_country() == 'NO' ) && ( $width < 60.0 ) && ( $length + $height + $width <= 90.0 ) && ( $weight < 2.0 ) ) {
+
+            $rate = 30.75;
+            $weight_rate = 83.45;
+
+            if ( $shipping_country == 'NO' ) {
+                $rate = 15.38;
+                $weight_rate = 41.73;
+            }
+            elseif ( in_array( $shipping_country, self::$european_countries ) ) {
+                 $rate = 23.70;
+                 $weight_rate = 64.35;
+            }
+
+            $rate += $weight * $weight_rate;
+
+            if ( ( $height > 7.0 ) || ( $width > 35.3 ) || ( $length > 25.0 ) ) {
+                $rate += 23.0;
+            }
+
+            if ( $shipping_country != 'NO' ) {
+                $rate *= 1.25;
+            }
+
+            $result[] = array(
+                'id'    => $this->id . ':' . sanitize_title( $custom_service ) . ':' . sanitize_title( $shipping_country ) . ':' . sanitize_title( $shipping_post_code ),
+                'cost'  => (float)$rate + (float)$this->fee,
+                'label' => __( 'Norway Post, not traceable', self::TEXT_DOMAIN )
+            );
+        }
+      }
+
+      return $result;
   }
 
   /**
@@ -426,6 +761,12 @@ class WC_Shipping_Method_Bring extends WC_Shipping_Method {
    * @return array|boolean
    */
   private function get_services_from_response( $response ) {
+
+    global $woocommerce;
+
+     $shipping_country = $woocommerce->customer->get_shipping_country();
+     $shipping_post_code = $woocommerce->customer->get_shipping_postcode();
+
     if ( ! $response || ( is_array( $response ) && count( $response ) == 0 ) || empty( $response['Product'] ) ) {
       return false;
     }
@@ -453,8 +794,12 @@ class WC_Shipping_Method_Bring extends WC_Shipping_Method {
           $rate *= $fuel_surcharge;
       }
 
+      if ( $shipping_country != 'NO' ) {
+          $rate *= 1.25;
+      }
+
       $rate = array(
-          'id'    => $this->id . ':' . sanitize_title( $serviceDetails['ProductId'] ),
+          'id'    => $this->id . ':' . sanitize_title( $serviceDetails['ProductId'] ) . ':' . sanitize_title( $shipping_country ) . ':' . sanitize_title( $shipping_post_code),
           'cost'  => (float)$rate + (float)$this->fee,
           'label' => $serviceDetails['GuiInformation'][$this->service_name] . ( $this->display_desc == 'no' ? '' : ': ' . $serviceDetails['GuiInformation']['DescriptionText'] ),
       );
